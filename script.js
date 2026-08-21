@@ -140,8 +140,7 @@ const WORD_CALENDAR = {
   "2026-12-28": "SOUHAIT",
   "2026-12-29": "ANNÉE",
   "2026-12-30": "REVEILLON",
-  "2026-12-31": "MINUIT"
-};
+  "2026-12-31": "MINUIT",
 };
 
 const FALLBACK_WORD = "SUTOM";
