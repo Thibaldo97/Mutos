@@ -225,3 +225,24 @@ h1 {
   background-color: #2196f3 !important; /* Bleu */
   opacity: 0.6;
 }
+
+/* Pied de page */
+footer {
+  margin-top: 30px;
+  padding: 15px 0;
+  text-align: center;
+  font-size: 0.85rem;
+  color: #888888;
+}
+
+footer a {
+  color: #ffffff;
+  text-decoration: none;
+  font-weight: bold;
+  transition: color 0.2s ease;
+}
+
+footer a:hover {
+  color: #e7002a; /* Devient rouge au survol */
+  text-decoration: underline;
+}
