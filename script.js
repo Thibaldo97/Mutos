@@ -526,6 +526,9 @@ function generateShareText() {
   let text = `SUTOM n°${dayNumber} ${score}/${MAX_ATTEMPTS} 🔥 ${count}\n\n`;
   text += guessesHistory.join("\n");
   
+  // Ajoute le lien dynamique vers ton site à la fin du message
+  text += `\n\nJouer aussi : ${window.location.href}`;
+  
   return text;
 }
 
