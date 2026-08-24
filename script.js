@@ -4,6 +4,7 @@
 const MAX_ATTEMPTS = 6;
 const STORAGE_KEY = "sutom_daily_game";
 const STREAK_KEY = "sutom_user_streak";
+const STATS_KEY = "sutom_user_stats";
 
 const START_DATE = new Date("2026-08-21");
 
@@ -138,9 +139,9 @@ const WORD_CALENDAR = {
   "2026-12-26": "FETE",
   "2026-12-27": "JOIE",
   "2026-12-28": "SOUHAIT",
-  "2026-12-29": "ANNÉE",
+  "2026-12-29": "ANNEE",
   "2026-12-30": "REVEILLON",
-  "2026-12-31": "MINUIT",
+  "2026-12-31": "MINUIT"
 };
 
 const FALLBACK_WORD = "SUTOM";
@@ -161,7 +162,7 @@ let currentAttempt = 0;
 let currentGuess = "";
 let gameOver = false;
 let guessesHistory = [];
-let keyStateMap = {}; // Conserve l'état de chaque lettre pour le clavier
+let keyStateMap = {};
 
 // Éléments du DOM
 const grid = document.getElementById("grid");
@@ -172,41 +173,93 @@ const streakCountEl = document.getElementById("streak-count");
 const keyboardEl = document.getElementById("keyboard");
 
 // ==========================================
-// 3. GESTION DU STREAK
+// 3. GESTION DES STATISTIQUES ET SÉRIE
 // ==========================================
-function getStreakData() {
-  const saved = localStorage.getItem(STREAK_KEY);
-  if (!saved) return { count: 0, lastDayPlayed: -1 };
+function getStats() {
+  const saved = localStorage.getItem(STATS_KEY);
+  if (!saved) {
+    return {
+      played: 0,
+      wins: 0,
+      currentStreak: 0,
+      maxStreak: 0,
+      guesses: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }
+    };
+  }
   try {
     return JSON.parse(saved);
   } catch (e) {
-    return { count: 0, lastDayPlayed: -1 };
+    return { played: 0, wins: 0, currentStreak: 0, maxStreak: 0, guesses: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 } };
   }
 }
 
-function updateStreakDisplay() {
-  const { count, lastDayPlayed } = getStreakData();
-  if (lastDayPlayed !== -1 && currentDayIndex - lastDayPlayed > 1) {
-    saveStreak(0, lastDayPlayed);
-    if (streakCountEl) streakCountEl.textContent = 0;
+function recordGameResult(hasWon, attemptCount) {
+  const { dayNumber } = getDayInfo();
+  if (localStorage.getItem(`stats_recorded_${dayNumber}`)) return; // Évite d'enregistrer deux fois le même jour
+
+  const stats = getStats();
+  stats.played += 1;
+
+  if (hasWon) {
+    stats.wins += 1;
+    stats.currentStreak += 1;
+    if (stats.currentStreak > stats.maxStreak) {
+      stats.maxStreak = stats.currentStreak;
+    }
+    stats.guesses[attemptCount] = (stats.guesses[attemptCount] || 0) + 1;
   } else {
-    if (streakCountEl) streakCountEl.textContent = count;
+    stats.currentStreak = 0; // Réinitialise la série en cas de défaite
   }
+
+  localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+  localStorage.setItem(`stats_recorded_${dayNumber}`, "true");
+  
+  // Synchronise aussi l'ancienne clé STREAK_KEY pour la barre de titre
+  localStorage.setItem(STREAK_KEY, JSON.stringify({ count: stats.currentStreak, lastDayPlayed: currentDayIndex }));
+
+  updateStatsDisplay();
 }
 
-function saveStreak(count, dayPlayed) {
-  localStorage.setItem(STREAK_KEY, JSON.stringify({
-    count: count,
-    lastDayPlayed: dayPlayed
-  }));
-  if (streakCountEl) streakCountEl.textContent = count;
-}
+function updateStatsDisplay() {
+  const stats = getStats();
 
-function incrementStreak() {
-  const { count, lastDayPlayed } = getStreakData();
-  if (lastDayPlayed !== currentDayIndex) {
-    const newCount = (currentDayIndex - lastDayPlayed === 1) ? count + 1 : 1;
-    saveStreak(newCount, currentDayIndex);
+  if (streakCountEl) streakCountEl.textContent = stats.currentStreak;
+
+  const playedEl = document.getElementById("stat-played");
+  const winrateEl = document.getElementById("stat-winrate");
+  const streakEl = document.getElementById("stat-streak");
+  const maxStreakEl = document.getElementById("stat-max-streak");
+
+  if (playedEl) playedEl.textContent = stats.played;
+  if (winrateEl) {
+    const winRate = stats.played > 0 ? Math.round((stats.wins / stats.played) * 100) : 0;
+    winrateEl.textContent = `${winRate}%`;
+  }
+  if (streakEl) streakEl.textContent = stats.currentStreak;
+  if (maxStreakEl) maxStreakEl.textContent = stats.maxStreak;
+
+  // Histogramme
+  const distContainer = document.getElementById("guess-distribution");
+  if (!distContainer) return;
+  distContainer.innerHTML = "";
+
+  const maxVal = Math.max(...Object.values(stats.guesses), 1);
+
+  for (let i = 1; i <= MAX_ATTEMPTS; i++) {
+    const count = stats.guesses[i] || 0;
+    const percentage = Math.max((count / maxVal) * 100, 7);
+
+    const row = document.createElement("div");
+    row.className = "dist-row";
+    row.innerHTML = `
+      <span>${i}</span>
+      <div class="dist-bar-container">
+        <div class="dist-bar ${count === 0 ? 'zero' : ''}" style="width: ${count === 0 ? '100%' : percentage + '%'}">
+          ${count}
+        </div>
+      </div>
+    `;
+    distContainer.appendChild(row);
   }
 }
 
@@ -287,7 +340,7 @@ function setupDailyGame() {
   initGrid();
   createKeyboard();
   setMessage("");
-  updateStreakDisplay();
+  updateStatsDisplay();
 
   const savedState = loadGameState();
   if (savedState) {
@@ -395,7 +448,7 @@ function triggerShake() {
 }
 
 // ==========================================
-// 6. GESTION DES ENTRÉES
+// 6. GESTION DES ENTRÉES & DU REPLAY
 // ==========================================
 function handleInput(key) {
   if (gameOver) return;
@@ -428,7 +481,7 @@ function submitGuess(isRestoring = false) {
   const guessLetters = currentGuess.split("");
   const result = Array(WORD_LENGTH).fill("absent");
 
-  // Pass 1: Lettres bien placées (Rouge)
+  // Pass 1: Bien placées (Rouge)
   for (let i = 0; i < WORD_LENGTH; i++) {
     if (guessLetters[i] === targetLetters[i]) {
       result[i] = "correct";
@@ -436,7 +489,7 @@ function submitGuess(isRestoring = false) {
     }
   }
 
-  // Pass 2: Lettres mal placées (Jaune)
+  // Pass 2: Mal placées (Jaune)
   for (let i = 0; i < WORD_LENGTH; i++) {
     if (result[i] !== "correct") {
       const index = targetLetters.indexOf(guessLetters[i]);
@@ -447,7 +500,7 @@ function submitGuess(isRestoring = false) {
     }
   }
 
-  // Application aux cases et enregistrement pour le clavier
+  // Application aux cases et clavier
   for (let i = 0; i < WORD_LENGTH; i++) {
     const cell = row.children[i];
     const letter = guessLetters[i];
@@ -463,7 +516,6 @@ function submitGuess(isRestoring = false) {
       cell.classList.add(status);
     }
 
-    // Mise à jour de la priorité de couleur pour le clavier : correct > present > absent
     const currentState = keyStateMap[letter];
     if (status === "correct") {
       keyStateMap[letter] = "correct";
@@ -474,19 +526,22 @@ function submitGuess(isRestoring = false) {
     }
   }
 
-  // Mise à jour des couleurs du clavier
   const colorDelay = isRestoring ? 0 : WORD_LENGTH * 200;
   setTimeout(updateKeyboardColors, colorDelay);
 
-  // Historique émoji
+  // Historique d'émojis
   const emojiMap = { correct: "🟥", present: "🟨", absent: "🟦" };
   const rowEmojis = result.map(type => emojiMap[type]).join("");
   guessesHistory.push(rowEmojis);
 
-  // Conditions de fin de partie
+  // ==========================================
+  // CONDITIONS DE FIN (VICTOIRE / DÉFAITE)
+  // ==========================================
   if (currentGuess === SECRET_WORD) {
     gameOver = true;
-    incrementStreak();
+    if (!isRestoring) {
+      recordGameResult(true, currentAttempt + 1); // Victoire
+    }
 
     setTimeout(() => {
       row.classList.add("win");
@@ -496,6 +551,10 @@ function submitGuess(isRestoring = false) {
 
   } else if (currentAttempt === MAX_ATTEMPTS - 1) {
     gameOver = true;
+    if (!isRestoring) {
+      recordGameResult(false, MAX_ATTEMPTS); // Défaite
+    }
+
     setTimeout(() => {
       if (!isRestoring) setMessage(`Perdu ! Le mot était : ${SECRET_WORD}`);
       showShareButton();
@@ -512,7 +571,7 @@ function submitGuess(isRestoring = false) {
 }
 
 function setMessage(msg) {
-  messageEl.textContent = msg;
+  if (messageEl) messageEl.textContent = msg;
 }
 
 // ==========================================
@@ -520,14 +579,12 @@ function setMessage(msg) {
 // ==========================================
 function generateShareText() {
   const { dayNumber } = getDayInfo();
-  const { count } = getStreakData();
+  const stats = getStats();
   const score = (currentGuess === SECRET_WORD) ? guessesHistory.length : "X";
   
-  let text = `SUTOM n°${dayNumber} ${score}/${MAX_ATTEMPTS} 🔥 ${count}\n\n`;
+  let text = `Mutos n°${dayNumber} ${score}/${MAX_ATTEMPTS} 📅 Série : ${stats.currentStreak} j\n\n`;
   text += guessesHistory.join("\n");
-  
-  // Ajoute le lien dynamique vers ton site à la fin du message
-  text += `\n\nJouer aussi : ${window.location.href}`;
+  text += `\n\nJouer : ${window.location.href}`;
   
   return text;
 }
@@ -536,19 +593,76 @@ function showShareButton() {
   if (!shareBtn) return;
   shareBtn.style.display = "inline-block";
   
-  shareBtn.onclick = () => {
+  shareBtn.onclick = async () => {
     const textToCopy = generateShareText();
     
-    navigator.clipboard.writeText(textToCopy).then(() => {
-      setMessage("Score copié dans le presse-papier ! 📋");
-    }).catch(() => {
-      setMessage("Erreur lors de la copie du score.");
-    });
+    if (navigator.share) {
+      try {
+        await navigator.share({ text: textToCopy });
+      } catch (err) {
+        // Annulé par l'utilisateur
+      }
+    } else if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(textToCopy).then(() => {
+        setMessage("Score copié dans le presse-papier ! 📋");
+      }).catch(() => {
+        fallbackCopyTextToClipboard(textToCopy);
+      });
+    } else {
+      fallbackCopyTextToClipboard(textToCopy);
+    }
   };
 }
 
+function fallbackCopyTextToClipboard(text) {
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  document.body.appendChild(textArea);
+  textArea.select();
+  try {
+    document.execCommand("copy");
+    setMessage("Score copié dans le presse-papier ! 📋");
+  } catch (err) {
+    setMessage("Erreur lors de la copie du score.");
+  }
+  document.body.removeChild(textArea);
+}
+
 // ==========================================
-// 8. DÉMARRAGE ET VÉRIFICATION MINUIT
+// 8. INITIALISATION DES MODALES ET DÉMARRAGE
 // ==========================================
+document.addEventListener("DOMContentLoaded", () => {
+  // RÈGLES
+  const rulesBtn = document.getElementById("rules-btn");
+  const rulesModal = document.getElementById("rules-modal");
+  const closeRules = document.getElementById("close-rules");
+
+  if (rulesBtn && rulesModal && closeRules) {
+    rulesBtn.addEventListener("click", () => rulesModal.classList.add("active"));
+    closeRules.addEventListener("click", () => rulesModal.classList.remove("active"));
+    window.addEventListener("click", (e) => {
+      if (e.target === rulesModal) rulesModal.classList.remove("active");
+    });
+  }
+
+  // STATISTIQUES
+  const statsBtn = document.getElementById("stats-btn");
+  const statsModal = document.getElementById("stats-modal");
+  closeStats = document.getElementById("close-stats");
+
+  if (statsBtn && statsModal && closeStats) {
+    statsBtn.addEventListener("click", () => {
+      updateStatsDisplay();
+      statsModal.classList.add("active");
+    });
+
+    closeStats.addEventListener("click", () => statsModal.classList.remove("active"));
+    window.addEventListener("click", (e) => {
+      if (e.target === statsModal) statsModal.classList.remove("active");
+    });
+  }
+});
+
+// Lancement du jeu
 setupDailyGame();
 setInterval(setupDailyGame, 60000);
